@@ -1,10 +1,3 @@
-# delete tables
-DROP TABLE comments, 
-signatures,
-types,
-sig_name ;
-
-
 #Schema setup
 
 CREATE TABLE sig_name (
