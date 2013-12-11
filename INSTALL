@@ -1,0 +1,23 @@
+
+1. install mysql server and client, should prompt to set a server password - eg
+sudo apt-get install mysql-server mysql-client
+or
+sudo yum install mysql mysql-server
+
+2. first change passwords
+vi setup.sql
+
+3. create database, add users and grant privileges
+mysql -u root -p < setup.sql
+
+4. remove passwords from .mysql_history
+vi ~/.mysql_history
+
+5. create tables
+mysql -u sigma_admin -p sigma < sigma.sql
+
+6. add to or create ~/.my.cnf
+[client]
+user=sigma_user
+password=user
+
