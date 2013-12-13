@@ -46,7 +46,7 @@ my $username = getpwuid( $< );
 GetOptions (
   "add-type=s"  => \$add_type,
   "add-sig:s"   => \$add_sig,
-  "update"      => \$update,
+  "update=s"    => \$update,
   "search=s"    => \$search,
   "regex=s"     => \$regex,
   "list"        => \$list,
@@ -116,7 +116,7 @@ sub add_sig() {
   #check either sig-text or sig-file is defined, if file then load into sig_text
   if (defined $sig_text) {
     if (defined $sig_file) {
-      print "either --sig-type or --sig-file, not both\n";
+      print "either --sig-test or --sig-file, not both\n";
       return;
     }
   } elsif (defined $sig_file) {
@@ -126,8 +126,9 @@ sub add_sig() {
     }
     open FILE, "<$sig_file";
     $sig_text = do { local $/; <FILE> };
+    $sig_text =~ s/\'/\\\'/g;
   } else {
-    print "--sig-type or --sig-file needs to be defined\n";
+    print "--sig-test or --sig-file needs to be defined\n";
     return;
   }
 
@@ -140,11 +141,13 @@ sub add_sig() {
   if (not defined $reference) {
     $reference = "none";
   }
+  $reference =~ s/\'/\\\'/g;
 
   # add username if no comment
   if (not defined $comment) {
     $comment = "Added by $username";
   }
+  $comment =~ s/\'/\\\'/g;
 
   # auto generate sig_name if not provided
   if ($add_sig eq '') {
@@ -178,7 +181,7 @@ sub add_sig() {
   my $sth = $dbh->prepare("SELECT id from sig_name where sig_name = '$add_sig'");
   $sth->execute;
   if (!$sth->rows) {
-    print "Error finding $add_sig in database";
+    print "Couldn't find $add_sig in database\n";
     $sth->finish;
     clean_up();
   }
@@ -186,14 +189,81 @@ sub add_sig() {
   $sig_id = $ref->{'id'};
   $sth->finish;
 
-  #TODO
-  print "TODO - need to escape certain characters here\n";
   $dbh->do("INSERT into signatures (sig_id, sig_type_id, sig_text, reference, status) VALUES ($sig_id, $type_id, '$sig_text', '$reference', '$status')");
   print "Added $add_sig\n";
+
+  # insert comments
+  $dbh->do("INSERT into comments (sig_id, comment) VALUES ($sig_id, '$comment')");
+
 }
 
 sub update() {
+  my $sig_id;
+  my $old_ref;
+  my $old_status;
+  my $old_sig_text;
 
+  # check sig exists before updating and get id
+  my $sth = $dbh->prepare("SELECT * from sig_name where sig_name = '$update'");
+  $sth->execute;
+  if (!$sth->rows) {
+    print "Couldn't find $update in database\n";
+    $sth->finish;
+  }
+  my $ref = $sth->fetchrow_hashref();
+  $sig_id = $ref->{'id'};
+  $sth->finish;
+
+  # check at least one thing to update
+  if (not defined $comment || $reference || $sig_text || $status) {
+    print "must update either comment, reference, sig_text or status\n";
+    usage();
+  }
+
+  # get old values for auto adding to comments - to keep history
+  $sth = $dbh->prepare("SELECT * from signatures where sig_id = $sig_id");
+  $sth->execute;
+  if (!$sth->rows) {
+    print "Couldn't find $sig_id in database\n";
+    $sth->finish;
+  }
+  $ref = $sth->fetchrow_hashref();
+  $old_ref = $ref->{'reference'};
+  $old_status = $ref->{'status'};
+  $old_sig_text = $ref->{'sig_text'};
+  $sth->finish;
+
+  if (not defined $comment) {
+    $comment = "Updated by $username";
+  } else {
+    $comment = "Updated by $username\n$comment";
+  }
+
+  #build query depending on what is to be updated, also build comment field
+  my $query = "UPDATE signatures SET ";
+  if (defined $sig_text) {
+    $sig_text =~ s/\'/\\\'/g;
+    $query .= "sig_text = '$sig_text', ";
+    $comment .= "\nold sig_text=$old_sig_text";
+  }
+  if (defined $reference) {
+    $reference =~ s/\'/\\\'/g;
+    $query .= "reference = '$reference', ";
+    $comment .= "\nold reference=$old_ref";
+  }
+  if (defined $status) {
+    $status =~ s/\'/\\\'/g;
+    $query .= "status = '$status', ";
+    $comment .= "\nold status=$old_status";
+  }
+  $query = substr($query, 0, -2);
+  $query .= " WHERE sig_id = '$sig_id'";
+
+  $dbh->do("$query");
+
+  # add comments
+  $comment =~ s/\'/\\\'/g;
+  $dbh->do("INSERT into comments (sig_id, comment) VALUES ($sig_id, '$comment')");
 }
 
 sub search() {
