@@ -17,7 +17,9 @@ sub add_sig();
 sub update();
 sub search();
 sub regex();
-sub list();
+sub generate();
+sub details();
+sub export();
 
 sub connect_db();
 sub clean_up();
@@ -30,7 +32,9 @@ my $add_sig;
 my $update;
 my $search;
 my $regex;
-my $list;
+my $generate;
+my $details;
+my $export;
 my $add_type;
 my $type;
 my $sig_text;
@@ -49,8 +53,10 @@ GetOptions (
   "update=s"    => \$update,
   "search=s"    => \$search,
   "regex=s"     => \$regex,
-  "list"        => \$list,
+  "export"      => \$export,
   "type=s"      => \$type,
+  "generate=s"  => \$generate,
+  "details=s"   => \$details,
   "sig-text=s"  => \$sig_text,
   "sig-file=s"  => \$sig_file,
   "reference=s" => \$reference,
@@ -75,8 +81,12 @@ if (defined $add_type) {
   search();
 } elsif (defined $regex) {
   regex();
-} elsif (defined $list) {
-  list();
+} elsif (defined $generate) {
+  generate();
+} elsif (defined $details) {
+  details();
+} elsif (defined $export) {
+  export();
 } else {
   usage();
 }
@@ -127,6 +137,7 @@ sub add_sig() {
     open FILE, "<$sig_file";
     $sig_text = do { local $/; <FILE> };
     $sig_text =~ s/\'/\\\'/g;
+    chomp $sig_text;
   } else {
     print "--sig-test or --sig-file needs to be defined\n";
     return;
@@ -240,26 +251,27 @@ sub update() {
   }
 
   #build query depending on what is to be updated, also build comment field
-  my $query = "UPDATE signatures SET ";
-  if (defined $sig_text) {
-    $sig_text =~ s/\'/\\\'/g;
-    $query .= "sig_text = '$sig_text', ";
-    $comment .= "\nold sig_text=$old_sig_text";
+  if (defined $sig_text or defined $reference or defined $status) {
+    my $query = "UPDATE signatures SET ";
+    if (defined $sig_text) {
+      $sig_text =~ s/\'/\\\'/g;
+      $query .= "sig_text = '$sig_text', ";
+      $comment .= "\nold sig_text=$old_sig_text";
+    }
+    if (defined $reference) {
+      $reference =~ s/\'/\\\'/g;
+      $query .= "reference = '$reference', ";
+      $comment .= "\nold reference=$old_ref";
+    }
+    if (defined $status) {
+      $status =~ s/\'/\\\'/g;
+      $query .= "status = '$status', ";
+      $comment .= "\nold status=$old_status";
+    }
+    $query = substr($query, 0, -2);
+    $query .= " WHERE sig_id = '$sig_id'";
+    $dbh->do("$query");
   }
-  if (defined $reference) {
-    $reference =~ s/\'/\\\'/g;
-    $query .= "reference = '$reference', ";
-    $comment .= "\nold reference=$old_ref";
-  }
-  if (defined $status) {
-    $status =~ s/\'/\\\'/g;
-    $query .= "status = '$status', ";
-    $comment .= "\nold status=$old_status";
-  }
-  $query = substr($query, 0, -2);
-  $query .= " WHERE sig_id = '$sig_id'";
-
-  $dbh->do("$query");
 
   # add comments
   $comment =~ s/\'/\\\'/g;
@@ -268,13 +280,227 @@ sub update() {
 
 sub search() {
 
+  $search =~ s/\'/\\\'/g;
+  my $found = 0;
+
+  # search in sig_text
+  my $sth = $dbh->prepare("SELECT sig_id,sig_text from signatures where sig_text like '%$search%';");
+  $sth->execute;
+  if ($sth->rows) {
+    $found = 1;
+    while (my $ref = $sth->fetchrow_hashref()) {
+      my $sth2 = $dbh->prepare("SELECT sig_name from sig_name where id = $ref->{'sig_id'};");
+      $sth2->execute;
+      my $ref2 = $sth2->fetchrow_hashref();
+      print "sig_text | $ref2->{'sig_name'} | $ref->{'sig_text'}\n";
+    }
+  }
+  $sth->finish;
+
+  # search in sig_name
+  $sth = $dbh->prepare("SELECT sig_name from sig_name where sig_name like '%$search%';");
+  $sth->execute;
+  if ($sth->rows) {
+    $found = 1;
+    while (my $ref = $sth->fetchrow_hashref()) {
+      print "name | $ref->{'sig_name'}\n";
+    }
+  }
+  $sth->finish;
+
+  # search in reference
+  $sth = $dbh->prepare("SELECT sig_id,reference from signatures where reference like '%$search%';");
+  $sth->execute;
+  if ($sth->rows) {
+    $found = 1;
+    while (my $ref = $sth->fetchrow_hashref()) {
+      my $sth2 = $dbh->prepare("SELECT sig_name from sig_name where id = $ref->{'sig_id'};");
+      $sth2->execute;
+      my $ref2 = $sth2->fetchrow_hashref();
+      print "reference | $ref2->{'sig_name'} | $ref->{'reference'}\n";
+    }
+  }
+  $sth->finish;
+
+  # search in comments
+  $sth = $dbh->prepare("SELECT sig_id,comment from comments where comment like '%$search%';");
+  $sth->execute;
+  if ($sth->rows) {
+    $found = 1;
+    while (my $ref = $sth->fetchrow_hashref()) {
+      my $sth2 = $dbh->prepare("SELECT sig_name from sig_name where id = $ref->{'sig_id'};");
+      $sth2->execute;
+      my $ref2 = $sth2->fetchrow_hashref();
+      print "comment | $ref2->{'sig_name'} | $ref->{'comment'}\n";
+    }
+  }
+  $sth->finish;
+
+  if (!$found) {
+    print "search string \"$search\" is not found\n";
+  }
+
 }
 
 sub regex() {
 
+  $regex =~ s/\'/\\\'/g;
+  my $found = 0;
+
+  # search in sig_text
+  my $sth = $dbh->prepare("SELECT sig_id,sig_text from signatures where sig_text REGEXP '$regex';");
+  $sth->execute;
+  if ($sth->rows) {
+    $found = 1;
+    while (my $ref = $sth->fetchrow_hashref()) {
+      my $sth2 = $dbh->prepare("SELECT sig_name from sig_name where id = $ref->{'sig_id'};");
+      $sth2->execute;
+      my $ref2 = $sth2->fetchrow_hashref();
+      print "sig_text | $ref2->{'sig_name'} | $ref->{'sig_text'}\n";
+    }
+  }
+  $sth->finish;
+
+  # search in sig_name
+  $sth = $dbh->prepare("SELECT sig_name from sig_name where sig_name REGEXP '$regex';");
+  $sth->execute;
+  if ($sth->rows) {
+    $found = 1;
+    while (my $ref = $sth->fetchrow_hashref()) {
+      print "name | $ref->{'sig_name'}\n";
+    }
+  }
+  $sth->finish;
+
+  # search in reference
+  $sth = $dbh->prepare("SELECT sig_id,reference from signatures where reference REGEXP '$regex';");
+  $sth->execute;
+  if ($sth->rows) {
+    $found = 1;
+    while (my $ref = $sth->fetchrow_hashref()) {
+      my $sth2 = $dbh->prepare("SELECT sig_name from sig_name where id = $ref->{'sig_id'};");
+      $sth2->execute;
+      my $ref2 = $sth2->fetchrow_hashref();
+      print "reference | $ref2->{'sig_name'} | $ref->{'reference'}\n";
+    }
+  }
+  $sth->finish;
+
+  # search in comments
+  $sth = $dbh->prepare("SELECT sig_id,comment from comments where comment REGEXP '$regex';");
+  $sth->execute;
+  if ($sth->rows) {
+    $found = 1;
+    while (my $ref = $sth->fetchrow_hashref()) {
+      my $sth2 = $dbh->prepare("SELECT sig_name from sig_name where id = $ref->{'sig_id'};");
+      $sth2->execute;
+      my $ref2 = $sth2->fetchrow_hashref();
+      print "comment | $ref2->{'sig_name'} | $ref->{'comment'}\n";
+    }
+  }
+  $sth->finish;
+
+  if (!$found) {
+    print "regex \"$regex\" is not found\n";
+  }
+
 }
 
-sub list() {
+sub generate() {
+
+  # get the type id
+  my $sth = $dbh->prepare("SELECT id from types where sig_type = '$generate'");
+  $sth->execute;
+  if ($sth->rows != 1) {
+    print "type $generate doesn't exist in the database\n";
+    $sth->finish;
+    return;
+  }
+  my $ref = $sth->fetchrow_hashref();
+  my $type_id = $ref->{'id'};
+  $sth->finish;
+
+  if (!$status) {
+    $status = "enabled";
+  }
+
+  # print sigs
+  $sth = $dbh->prepare("SELECT sig_text from signatures where sig_type_id = $type_id and status = '$status';");
+  $sth->execute;
+  if ($sth->rows) {
+    while (my $ref = $sth->fetchrow_hashref()) {
+      print "$ref->{'sig_text'}\n";
+    }
+  }
+  $sth->finish;
+
+}
+
+sub details() {
+
+  # get the type id
+  my $sth = $dbh->prepare("SELECT id from sig_name where sig_name = '$details'");
+  $sth->execute;
+  if ($sth->rows != 1) {
+    print "type $details doesn't exist in the database\n";
+    $sth->finish;
+    return;
+  }
+  my $ref = $sth->fetchrow_hashref();
+  my $id = $ref->{'id'};
+  $sth->finish;
+
+  $sth = $dbh->prepare("SELECT * from signatures where sig_id = $id;");
+  $sth->execute;
+  if ($sth->rows) {
+    $ref = $sth->fetchrow_hashref();
+    print "$details | $ref->{'status'} | $ref->{'reference'} | $ref->{'modified'} | $ref->{'sig_text'}\n";
+  }
+  $sth->finish;
+
+  $sth = $dbh->prepare("SELECT * from comments where sig_id = $id;");
+  $sth->execute;
+  if ($sth->rows) {
+    while (my $ref = $sth->fetchrow_hashref()) {
+      print "comment | $ref->{'ts'} | $ref->{'comment'}\n";
+    }
+  }
+  $sth->finish;
+
+}
+
+sub export() {
+
+  my $sig_name;
+  my $sth = $dbh->prepare("SELECT sig_type,id from types");
+  $sth->execute;
+  if ($sth->rows) {
+    while (my $type_ref = $sth->fetchrow_hashref()) {
+      print "./sigma.pl --add-type $type_ref->{'sig_type'}\n";
+      my $sth2 = $dbh->prepare("SELECT * from signatures where sig_type_id = $type_ref->{'id'}");
+      $sth2->execute;
+      if ($sth2->rows) {
+        while (my $sig_ref = $sth2->fetchrow_hashref()) {
+          my $sth3 = $dbh->prepare("SELECT sig_name from sig_name where id = $sig_ref->{'sig_id'}");
+          $sth3->execute;
+          my $name_ref = $sth3->fetchrow_hashref();
+          $sig_name = $name_ref->{'sig_name'};
+          print "./sigma.pl --add-sig $sig_name --type $type_ref->{'sig_type'} --reference $sig_ref->{'reference'} --status $sig_ref->{'status'} --sig-text '$sig_ref->{'sig_text'}'\n";
+          
+          $sth3 = $dbh->prepare("SELECT comment from comments where sig_id = $sig_ref->{'sig_id'}");
+          $sth3->execute;
+          if ($sth3->rows) {
+            while (my $comment_ref = $sth3->fetchrow_hashref()) {
+              print "./sigma.pl --update $sig_name --comment '$comment_ref->{'comment'}'\n";
+            }
+          }
+        }
+      }
+    }
+  }
+  $sth->finish;
+
+
 
 }
 
@@ -302,10 +528,11 @@ sub usage() {
 --add-type snort
 --add-sig [blank=auto|user-defined] --type=snort [--sig-text="snort rule here"|--sig-file=/path/to/sigfile] [--status=enabled|disabled|testing] [--reference="external_ref"] [--comment=auto|"user-defined"]
 --update sig-name [--sig-text|--status|--reference|--comment] [comment=auto] 
---search string [searches in sig-text, reference and comment]
---regex regex [regex search in sig-text, reference and comment]
---list [dumps all sigs]
---list snort [dumps all of selected type]
+--search string [searches in sig_name, sig-text, reference and comment]
+--regex regex [regex search in sig_name, sig-text, reference and comment]
+--generate snort [--status=enabled|disabled|testing]
+--details sig_name
+--export 
 ';
   die($usage);
 }
