@@ -64,6 +64,16 @@ GetOptions (
   "comment=s"   => \$comment)
 or usage();
 
+if (defined $comment) {
+  chomp $comment;
+}
+if (defined $reference) {
+ chomp $reference;
+}
+if ($sig_text) {
+  chomp $sig_text;
+}
+
 #
 # Main
 #
@@ -100,6 +110,7 @@ sub add_type() {
   if ($add_type !~ /^[A-Za-z0-9_-]*$/) {
     die("Invalid characters found, use only [A-Za-z0-9_-]\n");
   }
+  # database ensures sig_type is unique, allow db to handle errors
   $dbh->do("INSERT into types SET sig_type = '$add_type'");
 }
 
@@ -126,7 +137,7 @@ sub add_sig() {
   #check either sig-text or sig-file is defined, if file then load into sig_text
   if (defined $sig_text) {
     if (defined $sig_file) {
-      print "either --sig-test or --sig-file, not both\n";
+      print "either --sig-text or --sig-file, not both\n";
       return;
     }
   } elsif (defined $sig_file) {
@@ -139,7 +150,7 @@ sub add_sig() {
     $sig_text =~ s/\'/\\\'/g;
     chomp $sig_text;
   } else {
-    print "--sig-test or --sig-file needs to be defined\n";
+    print "--sig-text or --sig-file needs to be defined\n";
     return;
   }
 
@@ -159,6 +170,22 @@ sub add_sig() {
     $comment = "Added by $username";
   }
   $comment =~ s/\'/\\\'/g;
+
+  # first check if signature already exists and report the sig_name
+  my $sth = $dbh->prepare("SELECT sig_name from signatures left join sig_name on signatures.sig_id = sig_name.id where sig_text = '$sig_text'");
+  $sth->execute;
+  if ($sth->rows) {
+    print "The signature\n";
+    print "-------------\n";
+    print "$sig_text\n";
+    print "-------------\n";
+    print "already exists as ";
+    my $ref = $sth->fetchrow_hashref();
+    print "is already done $ref->{'sig_name'}\n";
+    $sth->finish;
+    clean_up();
+  }
+  $sth->finish;
 
   # auto generate sig_name if not provided
   if ($add_sig eq '') {
@@ -189,7 +216,7 @@ sub add_sig() {
   my $sig_id;
   #print "adding sig_name $add_sig to sig_name table\n";
   $dbh->do("INSERT into sig_name SET sig_name = '$add_sig'");
-  my $sth = $dbh->prepare("SELECT id from sig_name where sig_name = '$add_sig'");
+  $sth = $dbh->prepare("SELECT id from sig_name where sig_name = '$add_sig'");
   $sth->execute;
   if (!$sth->rows) {
     print "Couldn't find $add_sig in database\n";
@@ -247,7 +274,7 @@ sub update() {
   if (not defined $comment) {
     $comment = "Updated by $username";
   } else {
-    $comment = "Updated by $username\n$comment";
+    $comment = "Updated by $username: $comment";
   }
 
   #build query depending on what is to be updated, also build comment field
@@ -284,15 +311,12 @@ sub search() {
   my $found = 0;
 
   # search in sig_text
-  my $sth = $dbh->prepare("SELECT sig_id,sig_text from signatures where sig_text like '%$search%';");
+  my $sth = $dbh->prepare("SELECT sig_name,sig_text from signatures left join sig_name on signatures.sig_id = sig_name.id where sig_text like '%$search%'");
   $sth->execute;
   if ($sth->rows) {
     $found = 1;
     while (my $ref = $sth->fetchrow_hashref()) {
-      my $sth2 = $dbh->prepare("SELECT sig_name from sig_name where id = $ref->{'sig_id'};");
-      $sth2->execute;
-      my $ref2 = $sth2->fetchrow_hashref();
-      print "sig_text | $ref2->{'sig_name'} | $ref->{'sig_text'}\n";
+      print "sig_text | $ref->{'sig_name'} | $ref->{'sig_text'}\n";
     }
   }
   $sth->finish;
@@ -309,29 +333,23 @@ sub search() {
   $sth->finish;
 
   # search in reference
-  $sth = $dbh->prepare("SELECT sig_id,reference from signatures where reference like '%$search%';");
+  $sth = $dbh->prepare("SELECT sig_name,reference from signatures left join sig_name on signatures.sig_id = sig_name.id where reference like '%$search%'");
   $sth->execute;
   if ($sth->rows) {
     $found = 1;
     while (my $ref = $sth->fetchrow_hashref()) {
-      my $sth2 = $dbh->prepare("SELECT sig_name from sig_name where id = $ref->{'sig_id'};");
-      $sth2->execute;
-      my $ref2 = $sth2->fetchrow_hashref();
-      print "reference | $ref2->{'sig_name'} | $ref->{'reference'}\n";
+      print "reference | $ref->{'sig_name'} | $ref->{'reference'}\n";
     }
   }
   $sth->finish;
 
   # search in comments
-  $sth = $dbh->prepare("SELECT sig_id,comment from comments where comment like '%$search%';");
+  $sth = $dbh->prepare("SELECT sig_name,comment from signatures left join sig_name on signatures.sig_id = sig_name.id left join comments on signatures.sig_id = comments.sig_id where comment like '%$search%'");
   $sth->execute;
   if ($sth->rows) {
     $found = 1;
     while (my $ref = $sth->fetchrow_hashref()) {
-      my $sth2 = $dbh->prepare("SELECT sig_name from sig_name where id = $ref->{'sig_id'};");
-      $sth2->execute;
-      my $ref2 = $sth2->fetchrow_hashref();
-      print "comment | $ref2->{'sig_name'} | $ref->{'comment'}\n";
+      print "comment | $ref->{'sig_name'} | $ref->{'comment'}\n";
     }
   }
   $sth->finish;
@@ -348,15 +366,12 @@ sub regex() {
   my $found = 0;
 
   # search in sig_text
-  my $sth = $dbh->prepare("SELECT sig_id,sig_text from signatures where sig_text REGEXP '$regex';");
+  my $sth = $dbh->prepare("SELECT sig_name,sig_text from signatures left join sig_name on signatures.sig_id = sig_name.id where sig_text REGEXP '$regex'");
   $sth->execute;
   if ($sth->rows) {
     $found = 1;
     while (my $ref = $sth->fetchrow_hashref()) {
-      my $sth2 = $dbh->prepare("SELECT sig_name from sig_name where id = $ref->{'sig_id'};");
-      $sth2->execute;
-      my $ref2 = $sth2->fetchrow_hashref();
-      print "sig_text | $ref2->{'sig_name'} | $ref->{'sig_text'}\n";
+      print "sig_text | $ref->{'sig_name'} | $ref->{'sig_text'}\n";
     }
   }
   $sth->finish;
@@ -373,29 +388,23 @@ sub regex() {
   $sth->finish;
 
   # search in reference
-  $sth = $dbh->prepare("SELECT sig_id,reference from signatures where reference REGEXP '$regex';");
+  $sth = $dbh->prepare("SELECT sig_name,reference from signatures left join sig_name on signatures.sig_id = sig_name.id where reference REGEXP '$regex'");
   $sth->execute;
   if ($sth->rows) {
     $found = 1;
     while (my $ref = $sth->fetchrow_hashref()) {
-      my $sth2 = $dbh->prepare("SELECT sig_name from sig_name where id = $ref->{'sig_id'};");
-      $sth2->execute;
-      my $ref2 = $sth2->fetchrow_hashref();
-      print "reference | $ref2->{'sig_name'} | $ref->{'reference'}\n";
+      print "reference | $ref->{'sig_name'} | $ref->{'reference'}\n";
     }
   }
   $sth->finish;
 
   # search in comments
-  $sth = $dbh->prepare("SELECT sig_id,comment from comments where comment REGEXP '$regex';");
+  $sth = $dbh->prepare("SELECT sig_name,comment from signatures left join sig_name on signatures.sig_id = sig_name.id left join comments on signatures.sig_id = comments.sig_id where comment REGEXP '$regex'");
   $sth->execute;
   if ($sth->rows) {
     $found = 1;
     while (my $ref = $sth->fetchrow_hashref()) {
-      my $sth2 = $dbh->prepare("SELECT sig_name from sig_name where id = $ref->{'sig_id'};");
-      $sth2->execute;
-      my $ref2 = $sth2->fetchrow_hashref();
-      print "comment | $ref2->{'sig_name'} | $ref->{'comment'}\n";
+      print "comment | $ref->{'sig_name'} | $ref->{'comment'}\n";
     }
   }
   $sth->finish;
@@ -433,40 +442,30 @@ sub generate() {
     }
   }
   $sth->finish;
-
 }
 
 sub details() {
 
-  # get the type id
-  my $sth = $dbh->prepare("SELECT id from sig_name where sig_name = '$details'");
+  # print all except comments
+  my $sth = $dbh->prepare("SELECT * from signatures left join sig_name on signatures.sig_id = sig_name.id where sig_name = '$details'");
   $sth->execute;
-  if ($sth->rows != 1) {
-    print "type $details doesn't exist in the database\n";
+  my $ref = $sth->fetchrow_hashref();
+  if ($sth->rows) {
+    print "$details | $ref->{'status'} | $ref->{'reference'} | $ref->{'modified'} | $ref->{'sig_text'}\n";
+  } else {
+    print "$details\ndoesn't exist in the database\n";
     $sth->finish;
     return;
   }
-  my $ref = $sth->fetchrow_hashref();
-  my $id = $ref->{'id'};
   $sth->finish;
 
-  $sth = $dbh->prepare("SELECT * from signatures where sig_id = $id;");
+  # print all the comments
+  $sth = $dbh->prepare("SELECT sig_name,comment,ts from signatures left join sig_name on signatures.sig_id = sig_name.id left join comments on comments.sig_id = sig_name.id where sig_name.sig_name = '$details'");
   $sth->execute;
-  if ($sth->rows) {
-    $ref = $sth->fetchrow_hashref();
-    print "$details | $ref->{'status'} | $ref->{'reference'} | $ref->{'modified'} | $ref->{'sig_text'}\n";
+  while (my $ref = $sth->fetchrow_hashref()) {
+    print "comment | $ref->{'ts'} | $ref->{'comment'}\n";
   }
   $sth->finish;
-
-  $sth = $dbh->prepare("SELECT * from comments where sig_id = $id;");
-  $sth->execute;
-  if ($sth->rows) {
-    while (my $ref = $sth->fetchrow_hashref()) {
-      print "comment | $ref->{'ts'} | $ref->{'comment'}\n";
-    }
-  }
-  $sth->finish;
-
 }
 
 sub export() {
@@ -479,6 +478,7 @@ sub export() {
       print "./sigma.pl --add-type $type_ref->{'sig_type'}\n";
       my $sth2 = $dbh->prepare("SELECT * from signatures where sig_type_id = $type_ref->{'id'}");
       $sth2->execute;
+      # print all the sigs foreach type
       if ($sth2->rows) {
         while (my $sig_ref = $sth2->fetchrow_hashref()) {
           my $sth3 = $dbh->prepare("SELECT sig_name from sig_name where id = $sig_ref->{'sig_id'}");
@@ -487,6 +487,7 @@ sub export() {
           $sig_name = $name_ref->{'sig_name'};
           print "./sigma.pl --add-sig $sig_name --type $type_ref->{'sig_type'} --reference $sig_ref->{'reference'} --status $sig_ref->{'status'} --sig-text '$sig_ref->{'sig_text'}'\n";
           
+          # print all comments foreach sig
           $sth3 = $dbh->prepare("SELECT comment from comments where sig_id = $sig_ref->{'sig_id'}");
           $sth3->execute;
           if ($sth3->rows) {
@@ -499,9 +500,6 @@ sub export() {
     }
   }
   $sth->finish;
-
-
-
 }
 
 sub connect_db() {
