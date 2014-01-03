@@ -485,7 +485,7 @@ sub export() {
           $sth3->execute;
           my $name_ref = $sth3->fetchrow_hashref();
           $sig_name = $name_ref->{'sig_name'};
-          print "./sigma.pl --add-sig $sig_name --type $type_ref->{'sig_type'} --reference $sig_ref->{'reference'} --status $sig_ref->{'status'} --sig-text '$sig_ref->{'sig_text'}'\n";
+          print "./sigma.pl --add-sig $sig_name --type '$type_ref->{'sig_type'}' --reference '$sig_ref->{'reference'}' --status '$sig_ref->{'status'}' --sig-text '$sig_ref->{'sig_text'}'\n";
           
           # print all comments foreach sig
           $sth3 = $dbh->prepare("SELECT comment from comments where sig_id = $sig_ref->{'sig_id'}");
