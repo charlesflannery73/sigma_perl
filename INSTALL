@@ -3,6 +3,9 @@
 sudo apt-get install mysql-server mysql-client
 or
 sudo yum install mysql mysql-server
+chkconfig mysqld on
+service mysqld start
+mysql_secure_installation
 
 2. first change passwords
 vi setup.sql

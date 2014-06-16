@@ -179,9 +179,8 @@ sub add_sig() {
     print "-------------\n";
     print "$sig_text\n";
     print "-------------\n";
-    print "already exists as ";
     my $ref = $sth->fetchrow_hashref();
-    print "is already done $ref->{'sig_name'}\n";
+    print "already exists $ref->{'sig_name'}\n";
     $sth->finish;
     clean_up();
   }
@@ -523,12 +522,12 @@ sub clean_up() {
 sub usage() {
 
   my $usage = 'Usage:
---add-type snort
---add-sig [blank=auto|user-defined] --type=snort [--sig-text="snort rule here"|--sig-file=/path/to/sigfile] [--status=enabled|disabled|testing] [--reference="external_ref"] [--comment=auto|"user-defined"]
+--add-type type-name
+--add-sig [blank=auto|user-defined] --type=type-name [--sig-text="rule text here"|--sig-file=/path/to/sigfile] [--status=enabled|disabled|testing] [--reference="external_ref"] [--comment=auto|"user-defined"]
 --update sig-name [--sig-text|--status|--reference|--comment] [comment=auto] 
 --search string [searches in sig_name, sig-text, reference and comment]
 --regex regex [regex search in sig_name, sig-text, reference and comment]
---generate snort [--status=enabled|disabled|testing]
+--generate type-name [--status=enabled|disabled|testing]
 --details sig_name
 --export 
 ';
